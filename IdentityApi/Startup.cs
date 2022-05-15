@@ -97,7 +97,7 @@ namespace IdentityApi
                 // this defines a CORS policy called "default"
                 options.AddPolicy("default", policy =>
                 {
-                    policy.WithOrigins("http://localhost:8080")
+                    policy.WithOrigins("http://31.223.108.226:42001")
                         .AllowAnyHeader()
                         .AllowAnyMethod();
                 });

@@ -3,14 +3,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Configuration;
-using Microsoft.IdentityModel.Tokens;
 using System;
 using System.Collections.Generic;
-using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
-using System.Security.Claims;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace IdentityApi.Controllers
@@ -21,180 +16,164 @@ namespace IdentityApi.Controllers
     public class UsersController : ControllerBase
     {
         private readonly UserManager<IdentityUser> userManager;
-        private readonly RoleManager<IdentityRole> roleManager;
-        private readonly IConfiguration _configuration;
 
-        public UsersController(UserManager<IdentityUser> userManager, RoleManager<IdentityRole> roleManager, IConfiguration configuration)
+        public UsersController(UserManager<IdentityUser> userManager)
         {
             this.userManager = userManager;
-            this.roleManager = roleManager;
-            _configuration = configuration;
-        }
-
-        [HttpPost]
-        [AllowAnonymous]
-        [Route("login")]
-        public async Task<IActionResult> Login([FromBody] LoginModel model)
-        {
-            try
-            {
-                var now = DateTime.Now;
-                var user = await userManager.FindByNameAsync(model.Username);
-                if (user != null && await userManager.CheckPasswordAsync(user, model.Password))
-                {
-                    var userRoles = await userManager.GetRolesAsync(user);
-
-                    var claims = new List<Claim>
-                    {
-                        new Claim(ClaimTypes.Name, user.UserName),
-                        new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                    };
-
-                    claims.AddRange(await userManager.GetClaimsAsync(user));
-                    foreach (var roleName in userRoles)
-                    {
-                        claims.Add(new Claim(ClaimTypes.Role, roleName));
-                        var role = await roleManager.FindByNameAsync(roleName);
-                        claims.AddRange(await roleManager.GetClaimsAsync(role));
-                    }
-
-                    claims.Add(new Claim("LoginTime", now.ToString("O"), "DateTime[O]"));
-
-                    var authSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["JWT:Secret"]));
-
-                    var token = new JwtSecurityToken(
-                        issuer: _configuration["JWT:ValidIssuer"],
-                        audience: _configuration["JWT:ValidAudience"],
-                        expires: now.AddHours(5),
-                        claims: claims,
-                        signingCredentials: new SigningCredentials(authSigningKey, SecurityAlgorithms.HmacSha256)
-                        );
-
-                    return Ok(new
-                    {
-                        token = new JwtSecurityTokenHandler().WriteToken(token),
-                        expiration = token.ValidTo,
-                        createdDate = now,
-                        claims = (from c in claims select new { c.Type, c.Value, c.ValueType }).ToList()
-                    });
-                }
-            }
-            catch (Exception ex)
-            {
-                return Ok("Hata: " + ex.Message);
-            }
-            return Unauthorized();
         }
 
         [HttpPost]
         [Route("register")]
-        public async Task<IActionResult> Register([FromBody] RegisterUserModel model)
+        public async Task<ResponseModel> Register([FromBody] RegisterUserModel model)
         {
-            var userExists = await userManager.FindByNameAsync(model.Username);
-            if (userExists != null)
-                return StatusCode(StatusCodes.Status500InternalServerError, new Response { Status = "Error", Message = "User already exists!" });
-
-            var user = new IdentityUser()
+            try
             {
-                Email = model.Email,
-                SecurityStamp = Guid.NewGuid().ToString(),
-                UserName = model.Username
-            };
-            var result = await userManager.CreateAsync(user, model.Password);
-            if (result.Succeeded && model.Roles != null && model.Roles.Count > 0)
-                await userManager.AddToRolesAsync(user, model.Roles);
-            if (!result.Succeeded)
-                return StatusCode(StatusCodes.Status500InternalServerError, new Response { Status = "Error", Message = "User creation failed! Please check user details and try again." });
+                var userExists = await userManager.FindByNameAsync(model.Username);
+                if (userExists != null)
+                    return ResponseModel.Fail("User already exists!", StatusCodes.Status500InternalServerError);
 
-            return Ok(new Response { Status = "Success", Message = "User created successfully!" });
+                var user = new IdentityUser()
+                {
+                    Email = model.Email,
+                    SecurityStamp = Guid.NewGuid().ToString(),
+                    UserName = model.Username
+                };
+                var result = await userManager.CreateAsync(user, model.Password);
+                if (result.Succeeded && model.Roles != null && model.Roles.Count > 0)
+                    await userManager.AddToRolesAsync(user, model.Roles);
+                if (!result.Succeeded)
+                    return ResponseModel.Fail("User creation failed! Please check user details and try again.", StatusCodes.Status500InternalServerError);
+
+                return ResponseModel.Success("User created successfully!");
+            }
+            catch
+            {
+                return ResponseModel.Fail("An unexpected error has occurred!");
+            }
         }
 
         [HttpPut]
         [Route("editroles")]
-        public async Task<IActionResult> EditRoles([FromBody] UpdateUserRolesModel model)
+        public async Task<ResponseModel> EditRoles([FromBody] UpdateUserRolesModel model)
         {
-            var user = await userManager.FindByNameAsync(model.Username);
-            if (user == null)
-                return StatusCode(StatusCodes.Status500InternalServerError, new Response { Status = "Error", Message = "User not found!" });
+            try
+            {
+                var user = await userManager.FindByNameAsync(model.Username);
+                if (user == null)
+                    return ResponseModel.Fail("User not found!", StatusCodes.Status500InternalServerError);
 
-            var currentRoles = await userManager.GetRolesAsync(user);
+                var currentRoles = await userManager.GetRolesAsync(user);
 
-            // delete roles
-            await userManager.RemoveFromRolesAsync(user, currentRoles.Where(c => !model.Roles.Any(r => r.Equals(c))));
+                // delete roles
+                await userManager.RemoveFromRolesAsync(user, currentRoles.Where(c => !model.Roles.Any(r => r.Equals(c))));
 
-            //add roles
-            await userManager.AddToRolesAsync(user, model.Roles.Where(r => !currentRoles.Any(c => c.Equals(r))));
+                //add roles
+                await userManager.AddToRolesAsync(user, model.Roles.Where(r => !currentRoles.Any(c => c.Equals(r))));
 
-            return Ok(new Response { Status = "Success", Message = "User updated roles successfully!" });
+                return ResponseModel.Success("User updated roles successfully!");
+            }
+            catch
+            {
+                return ResponseModel.Fail("An unexpected error has occurred!");
+            }
         }
 
         [HttpPut]
         [Route("editcliams")]
-        public async Task<IActionResult> EditCliams([FromBody] UpdateUserClaimsModel model)
+        public async Task<ResponseModel> EditCliams([FromBody] UpdateUserClaimsModel model)
         {
-            var user = await userManager.FindByNameAsync(model.Username);
-            if (user == null)
-                return StatusCode(StatusCodes.Status500InternalServerError, new Response { Status = "Error", Message = "User not found!" });
+            try
+            {
 
-            var currentClaims = await userManager.GetClaimsAsync(user);
+                var user = await userManager.FindByNameAsync(model.Username);
+                if (user == null)
+                    return ResponseModel.Fail("User not found!", StatusCodes.Status500InternalServerError);
 
-            // delete roles
-            await userManager.RemoveClaimsAsync(user, currentClaims.Where(c => !model.Claims.Any(r => r.Type.Equals(c.Type))));
+                var currentClaims = await userManager.GetClaimsAsync(user);
 
-            //add roles
-            await userManager.AddClaimsAsync(user, model.Claims.Where(r => !currentClaims.Any(c => c.Type.Equals(r.Type))));
+                // delete roles
+                await userManager.RemoveClaimsAsync(user, currentClaims.Where(c => !model.Claims.Any(r => r.Type.Equals(c.Type))));
 
-            return Ok(new Response { Status = "Success", Message = "User updated claims successfully!" });
+                //add roles
+                await userManager.AddClaimsAsync(user, model.Claims.Where(r => !currentClaims.Any(c => c.Type.Equals(r.Type))));
+
+                return ResponseModel.Success("User updated claims successfully!");
+            }
+            catch
+            {
+                return ResponseModel.Fail("An unexpected error has occurred!");
+            }
         }
 
         [HttpGet]
         [Route("getuser")]
-        public async Task<IActionResult> GetUser(string username)
+        public async Task<ResponseModel<UserModel>> GetUser(string username)
         {
-            var user = await userManager.FindByNameAsync(username);
-            if (user == null)
-                return StatusCode(StatusCodes.Status500InternalServerError, new Response { Status = "Error", Message = "User not found!" });
-
-            var currentRoles = await userManager.GetRolesAsync(user);
-            return Ok(new UserModel()
+            try
             {
-                Username = user.UserName,
-                Email = user.Email,
-                Roles = currentRoles,
-                Id = user.Id
-            });
+                var user = await userManager.FindByNameAsync(username);
+                if (user == null)
+                    return ResponseModel<UserModel>.Fail("User not found!", StatusCodes.Status500InternalServerError);
+
+                var currentRoles = await userManager.GetRolesAsync(user);
+                return ResponseModel<UserModel>.Success(new UserModel()
+                {
+                    Username = user.UserName,
+                    Email = user.Email,
+                    Roles = currentRoles,
+                    Id = user.Id
+                });
+            }
+            catch
+            {
+                return ResponseModel<UserModel>.Fail("Failed to fetch role list!");
+            }
         }
 
         [HttpGet]
         [Route("getallusers")]
-        public async Task<IActionResult> GetAllUsers()
+        public async Task<ResponseModel<List<UserModel>>> GetAllUsers()
         {
-            var users = userManager.Users.ToList();
+            try
+            {
+                var users = userManager.Users.ToList();
 
-            var result = new List<UserModel>();
-            foreach (var user in users)
-                result.Add(new UserModel()
-                {
-                    Username = user.UserName,
-                    Email = user.Email,
-                    Roles = await userManager.GetRolesAsync(user),
-                    Id = user.Id
-                });
+                var result = new List<UserModel>();
+                foreach (var user in users)
+                    result.Add(new UserModel()
+                    {
+                        Username = user.UserName,
+                        Email = user.Email,
+                        Roles = await userManager.GetRolesAsync(user),
+                        Id = user.Id
+                    });
 
-            return Ok(result);
+                return ResponseModel<List<UserModel>>.Success(result);
+            }
+            catch
+            {
+                return ResponseModel<List<UserModel>>.Fail("Failed to fetch role list!");
+            }
         }
 
         [HttpDelete]
         [Route("removeuser")]
-        public async Task<IActionResult> RemoveUser([FromBody] RemoveUserModel model)
+        public async Task<ResponseModel> RemoveUser([FromBody] RemoveUserModel model)
         {
-            var user = await userManager.FindByNameAsync(model.Username);
-            if (user == null)
-                return StatusCode(StatusCodes.Status500InternalServerError, new Response { Status = "Error", Message = "User not found!" });
+            try
+            {
+                var user = await userManager.FindByNameAsync(model.Username);
+                if (user == null)
+                    return ResponseModel.Fail("User not found!", StatusCodes.Status500InternalServerError);
 
-            await userManager.DeleteAsync(user);
+                await userManager.DeleteAsync(user);
 
-            return Ok(new Response { Status = "Success", Message = "User removed successfully!" });
+                return ResponseModel.Success("User removed successfully!");
+            }
+            catch
+            {
+                return ResponseModel.Fail("An unexpected error has occurred!");
+            }
         }
     }
 }

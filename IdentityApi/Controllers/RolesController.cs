@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -24,86 +26,123 @@ namespace IdentityApi.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> Post([FromBody] CreateRoleModel model)
+        public async Task<ResponseModel> Post([FromBody] CreateRoleModel model)
         {
-            var roleExists = await roleManager.FindByNameAsync(model.Name);
-            if (roleExists != null)
-                return StatusCode(StatusCodes.Status500InternalServerError, new Response { Status = "Error", Message = "Role already exists!" });
-
-            IdentityRole role = new IdentityRole()
+            try
             {
-                Name = model.Name,
-                NormalizedName = string.IsNullOrEmpty(model.NormalizedName)
-                ? model.Name.Replace(" ", "").ToUpper()
-                : model.NormalizedName
-            };
-            var result = await roleManager.CreateAsync(role);
 
-            if (!result.Succeeded)
-                return StatusCode(StatusCodes.Status500InternalServerError, new Response { Status = "Error", Message = "Role creation failed! Please check role details and try again." });
+                var roleExists = await roleManager.FindByNameAsync(model.Name);
+                if (roleExists != null)
+                    return ResponseModel.Fail("Role already exists!", StatusCodes.Status500InternalServerError);
 
-            return Ok(role);
+                IdentityRole role = new IdentityRole()
+                {
+                    Name = model.Name,
+                    NormalizedName = string.IsNullOrEmpty(model.NormalizedName)
+                    ? model.Name.Replace(" ", "").ToUpper()
+                    : model.NormalizedName
+                };
+                var result = await roleManager.CreateAsync(role);
+
+                if (!result.Succeeded)
+                    return ResponseModel.Fail("Role creation failed! Please check role details and try again.", StatusCodes.Status500InternalServerError);
+
+                return ResponseModel.Success();
+            }
+            catch
+            {
+                return ResponseModel.Fail("An unexpected error has occurred!");
+            }
         }
 
         [HttpPut]
-        public async Task<IActionResult> Put([FromBody] RoleModel model)
+        public async Task<ResponseModel> Put([FromBody] RoleModel model)
         {
-            var role = await roleManager.FindByIdAsync(model.Id);
-            if (role == null)
-                return StatusCode(StatusCodes.Status500InternalServerError, new Response { Status = "Error", Message = "Role not found!" });
+            try
+            {
+                var role = await roleManager.FindByIdAsync(model.Id);
+                if (role == null)
+                    return ResponseModel.Fail("Role not found!", StatusCodes.Status500InternalServerError);
 
-            role.Name = model.Name;
-            role.NormalizedName = string.IsNullOrEmpty(model.NormalizedName)
-                ? model.Name.Replace(" ", "").ToUpper()
-                : model.NormalizedName;
-            var result = await roleManager.UpdateAsync(role);
+                role.Name = model.Name;
+                role.NormalizedName = string.IsNullOrEmpty(model.NormalizedName)
+                    ? model.Name.Replace(" ", "").ToUpper()
+                    : model.NormalizedName;
+                var result = await roleManager.UpdateAsync(role);
 
-            if (!result.Succeeded)
-                return StatusCode(StatusCodes.Status500InternalServerError, new Response { Status = "Error", Message = "Role update failed! Please check role details and try again." });
+                if (!result.Succeeded)
+                    return ResponseModel.Fail("Role update failed! Please check role details and try again.", StatusCodes.Status500InternalServerError);
 
-            return Ok(new Response { Status = "Success", Message = "Role updated successfully!" });
+                return ResponseModel.Success("Role updated successfully!");
+            }
+            catch
+            {
+                return ResponseModel.Fail("An unexpected error has occurred!");
+            }
         }
 
         [HttpPut]
         [Route("editclaims")]
-        public async Task<IActionResult> EditClaims([FromBody] RoleClaimsModel model)
+        public async Task<ResponseModel> EditClaims([FromBody] RoleClaimsModel model)
         {
-            var role = await roleManager.FindByIdAsync(model.Id);
-            if (role == null)
-                return StatusCode(StatusCodes.Status500InternalServerError, new Response { Status = "Error", Message = "Role not found!" });
+            try
+            {
 
-            var currentClaims = await roleManager.GetClaimsAsync(role);
+                var role = await roleManager.FindByIdAsync(model.Id);
+                if (role == null)
+                    return ResponseModel.Fail("Role not found!", StatusCodes.Status500InternalServerError);
 
-            // delete roles
-            foreach (var claim in currentClaims.Where(c => !model.Claims.Any(r => r.Type.Equals(c.Type))))
-                await roleManager.RemoveClaimAsync(role, claim);
+                var currentClaims = await roleManager.GetClaimsAsync(role);
 
-            //add roles
-            foreach (var claim in model.Claims.Where(r => !currentClaims.Any(c => c.Type.Equals(r.Type))))
-                await roleManager.AddClaimAsync(role, claim);
+                // delete roles
+                foreach (var claim in currentClaims.Where(c => !model.Claims.Any(r => r.Type.Equals(c.Type))))
+                    await roleManager.RemoveClaimAsync(role, claim);
 
-            return Ok(new Response { Status = "Success", Message = "Role claims updated successfully!" });
+                //add roles
+                foreach (var claim in model.Claims.Where(r => !currentClaims.Any(c => c.Type.Equals(r.Type))))
+                    await roleManager.AddClaimAsync(role, claim);
+
+                return ResponseModel.Success("Role claims updated successfully!");
+            }
+            catch
+            {
+                return ResponseModel.Fail("An unexpected error has occurred!");
+            }
         }
 
         [HttpDelete]
-        public async Task<IActionResult> Delete([FromBody] RoleModel model)
+        public async Task<ResponseModel> Delete([FromBody] RoleModel model)
         {
-            var role = await roleManager.FindByIdAsync(model.Id);
-            if (role == null)
-                return StatusCode(StatusCodes.Status500InternalServerError, new Response { Status = "Error", Message = "Role not found!" });
+            try
+            {
+                var role = await roleManager.FindByIdAsync(model.Id);
+                if (role == null)
+                    return ResponseModel.Fail("Role not found!", StatusCodes.Status500InternalServerError);
 
-            var result = await roleManager.DeleteAsync(role);
+                var result = await roleManager.DeleteAsync(role);
 
-            if (!result.Succeeded)
-                return StatusCode(StatusCodes.Status500InternalServerError, new Response { Status = "Error", Message = "Role delete failed! Please check role details and try again." });
+                if (!result.Succeeded)
+                    return ResponseModel.Fail("Role delete failed! Please check role details and try again.", StatusCodes.Status500InternalServerError);
 
-            return Ok(new Response { Status = "Success", Message = "Role deleted successfully!" });
+                return ResponseModel.Success("Role deleted successfully!");
+            }
+            catch
+            {
+                return ResponseModel.Fail("An unexpected error has occurred!");
+            }
         }
 
         [HttpGet]
-        public IActionResult Get()
+        public ResponseModel<List<IdentityRole>> Get()
         {
-            return Ok(roleManager.Roles.ToList());
+            try
+            {
+                return ResponseModel<List<IdentityRole>>.Success(roleManager.Roles.ToList());
+            }
+            catch
+            {
+                return ResponseModel<List<IdentityRole>>.Fail("Failed to fetch role list.");
+            }
         }
     }
 }
